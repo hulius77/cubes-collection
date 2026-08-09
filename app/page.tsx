@@ -90,7 +90,7 @@ export default function HomePage() {
       {/* Cabecera */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-zinc-800 pb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white">Mi Colección de Cubos</h1>
+          <h1 className="text-3xl font-bold text-white">Cubes&Stuff</h1>
           <p className="text-xs text-zinc-400 mt-1">Explora todos tus ejemplares guardados</p>
         </div>
         <Link 
