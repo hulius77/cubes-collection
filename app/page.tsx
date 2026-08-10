@@ -1,11 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '../lib/supabase/client'
+import { createClient } from '@/lib/supabase/client' // Usar el alias '@/' previene errores de rutas relativas
+
+const supabase = createClient()
 
 export default function HomePage() {
-  const supabase = createClient()
+  const router = useRouter()
   const [items, setItems] = useState<any[]>([])
   const [brands, setBrands] = useState<any[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -14,20 +17,29 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedBrand, setSelectedBrand] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('')
+  const [sortBy, setSortBy] = useState('newest')
   const [loading, setLoading] = useState(true)
 
   const [activeModalItem, setActiveModalItem] = useState<any | null>(null)
   const [activeImageIndex, setActiveImageIndex] = useState(0)
 
   useEffect(() => {
-    checkSession()
-    loadData()
-  }, [])
+    // Control de sesión robusto con onAuthStateChange
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
+      setSession(session)
+    })
 
-  async function checkSession() {
-    const { data: { session } } = await supabase.auth.getSession()
-    setSession(session)
-  }
+    // Comprobación inicial de sesión
+    supabase.auth.getSession().then(({ data }: { data: { session: any } }) => {
+      setSession(data.session)
+    })
+
+    loadData()
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [router])
 
   async function loadData() {
     setLoading(true)
@@ -69,7 +81,7 @@ export default function HomePage() {
           imgs = Array.from(new Set([...imgs, ...extraImgs]))
         }
 
-        const categoryName = item.models?.category || item.models?.categories?.name || ''
+        const categoryName = item.models?.category || item.models?.categories?.name || item.category || ''
 
         return {
           ...item,
@@ -91,10 +103,15 @@ export default function HomePage() {
     setLoading(false)
   }
 
+  // ESTADÍSTICAS AMPLIADAS
   const totalCubes = items.length
   const totalInvestment = items.reduce((acc, item) => acc + (Number(item.price) || 0), 0)
+  const averagePrice = totalCubes > 0 ? totalInvestment / totalCubes : 0
+  const averageRating = totalCubes > 0 ? items.reduce((acc, item) => acc + (Number(item.rating) || 0), 0) / totalCubes : 0
+  const mostValuableItem = [...items].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0))[0]
   const topRatedItems = [...items].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 5)
 
+  // FILTRADO
   const filteredItems = items.filter((item: any) => {
     const modelName = item.models?.name?.toLowerCase() || ''
     const brandName = item.models?.brands?.name?.toLowerCase() || ''
@@ -104,19 +121,36 @@ export default function HomePage() {
 
     const matchesSearch = modelName.includes(query) || brandName.includes(query) || itemNotes.includes(query) || baseColor.includes(query)
     const matchesBrand = selectedBrand ? item.models?.brands?.name === selectedBrand : true
-    const matchesCategory = selectedCategory ? item.categoryName?.trim() === selectedCategory.trim() : true
+    const matchesCategory = selectedCategory 
+      ? item.categoryName?.trim().toLowerCase() === selectedCategory.trim().toLowerCase() 
+      : true
 
     return matchesSearch && matchesBrand && matchesCategory
+  })
+
+  // ORDENACIÓN
+  const sortedAndFilteredItems = [...filteredItems].sort((a, b) => {
+    if (sortBy === 'newest') {
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    }
+    if (sortBy === 'oldest') {
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    }
+    if (sortBy === 'rating-desc') {
+      return (b.rating || 0) - (a.rating || 0)
+    }
+    if (sortBy === 'price-desc') {
+      return (Number(b.price) || 0) - (Number(a.price) || 0)
+    }
+    if (sortBy === 'price-asc') {
+      return (Number(a.price) || 0) - (Number(b.price) || 0)
+    }
+    return 0
   })
 
   const openModal = (item: any) => {
     setActiveModalItem(item)
     setActiveImageIndex(0)
-  }
-
-const handleEditClick = (itemId: string) => {
-    // Redirigimos usando un formato de URL limpio
-    window.location.href = `/admin?edit=${itemId}`
   }
 
   return (
@@ -158,15 +192,41 @@ const handleEditClick = (itemId: string) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      {/* PANEL DE ESTADÍSTICAS AMPLIADAS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-xl">
-          <span className="text-xs text-zinc-500 uppercase font-bold block mb-1">Total de Cubos</span>
-          <span className="text-2xl font-extrabold text-white">{totalCubes}</span>
+          <span className="text-xs text-zinc-500 uppercase font-bold block mb-1">Resumen Colección</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold text-white">{totalCubes}</span>
+            <span className="text-xs text-zinc-400">cubos registrados</span>
+          </div>
+          <div className="text-xs text-emerald-400 font-semibold mt-1">
+            Inversión: {totalInvestment.toFixed(2)} €
+          </div>
         </div>
+
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-xl">
-          <span className="text-xs text-zinc-500 uppercase font-bold block mb-1">Inversión Total</span>
-          <span className="text-2xl font-extrabold text-emerald-400">{totalInvestment.toFixed(2)} €</span>
+          <span className="text-xs text-zinc-500 uppercase font-bold block mb-1">Medias Globales</span>
+          <div className="text-sm font-bold text-zinc-200 mt-1">
+            Precio medio: <span className="text-emerald-400">{averagePrice.toFixed(2)} €</span>
+          </div>
+          <div className="text-sm font-bold text-zinc-200 mt-1">
+            Nota media: <span className="text-amber-400">{averageRating.toFixed(1)} / 10</span>
+          </div>
         </div>
+
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-xl">
+          <span className="text-xs text-zinc-500 uppercase font-bold block mb-1">Cubo Más Valioso</span>
+          {mostValuableItem ? (
+            <div className="truncate mt-1">
+              <span className="text-xs font-bold text-white block truncate">{mostValuableItem.models?.name || 'Sin nombre'}</span>
+              <span className="text-xs font-extrabold text-emerald-400">{mostValuableItem.price} €</span>
+            </div>
+          ) : (
+            <span className="text-xs text-zinc-500">Sin datos</span>
+          )}
+        </div>
+
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
           <span className="text-xs text-zinc-500 uppercase font-bold block mb-1">Top 5 Mejor Valorados</span>
           <div className="flex flex-wrap gap-1">
@@ -175,7 +235,7 @@ const handleEditClick = (itemId: string) => {
                 <span 
                   key={item.id} 
                   onClick={() => openModal(item)}
-                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold px-2 py-1 rounded-md cursor-pointer transition truncate max-w-[140px]"
+                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold px-2 py-1 rounded-md cursor-pointer transition truncate max-w-[130px]"
                 >
                   {idx + 1}. {item.models?.name} ({item.rating}★)
                 </span>
@@ -187,7 +247,8 @@ const handleEditClick = (itemId: string) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      {/* FILTROS Y ORDENACIÓN (4 Columnas) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <div>
           <input
             type="text"
@@ -221,17 +282,30 @@ const handleEditClick = (itemId: string) => {
             ))}
           </select>
         </div>
+        <div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-zinc-600 shadow-inner"
+          >
+            <option value="newest">Más recientes primero</option>
+            <option value="oldest">Más antiguos primero</option>
+            <option value="rating-desc">Mejor valorados (★)</option>
+            <option value="price-desc">Mayor precio</option>
+            <option value="price-asc">Menor precio</option>
+          </select>
+        </div>
       </div>
 
       {loading ? (
         <div className="text-center py-20 text-zinc-500 text-sm">Cargando colección...</div>
-      ) : filteredItems.length === 0 ? (
+      ) : sortedAndFilteredItems.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center text-zinc-400 text-sm shadow-xl">
           No se ha encontrado ningún cubo con esos filtros.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {filteredItems.map((item) => {
+          {sortedAndFilteredItems.map((item) => {
             const mainImg = item.images_list[0] || null
             const colorBase = item.base_color || item.plastic_color
 
@@ -391,12 +465,12 @@ const handleEditClick = (itemId: string) => {
                 </div>
 
                 {session && (
-                  <button
-                    onClick={() => handleEditClick(activeModalItem.id)}
+                  <a
+                    href={`/admin?edit=${activeModalItem.id}`}
                     className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-md whitespace-nowrap cursor-pointer"
                   >
                     ✏️ Editar cubo
-                  </button>
+                  </a>
                 )}
               </div>
 

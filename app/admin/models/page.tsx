@@ -55,24 +55,24 @@ export default function AdminModels() {
     setLoading(false)
   }
 
-
   useEffect(() => {
-  // Capturar parámetro desde URL o desde localStorage
-  const params = new URLSearchParams(window.location.search)
-  const editIdFromUrl = params.get('edit')
-  const editIdFromStorage = localStorage.getItem('editItemId')
+    // 1. Cargamos los datos de Supabase al montar el componente
+    fetchData()
 
-  const targetId = editIdFromUrl || editIdFromStorage
+    // 2. Capturar parámetro desde URL o desde localStorage para edición externa
+    const params = new URLSearchParams(window.location.search)
+    const editIdFromUrl = params.get('edit')
+    const editIdFromStorage = localStorage.getItem('editItemId')
 
-  if (targetId) {
-    // Limpiamos el storage para que no se repita
-    localStorage.removeItem('editItemId')
-    
-    // Llama a la función que tengas en tu admin para cargar el ítem en edición
-    // Ejemplo:
-    // startEditingItem(targetId)
-  }
-}, [])
+    const targetId = editIdFromUrl || editIdFromStorage
+
+    if (targetId) {
+      localStorage.removeItem('editItemId')
+      // Si quisieras buscar y editar automáticamente un modelo por ID pasado por URL:
+      // const modelToEdit = models.find(m => m.id === targetId)
+      // if (modelToEdit) handleEdit(modelToEdit)
+    }
+  }, [])
 
   const resetForm = () => {
     setEditingModel(null)
