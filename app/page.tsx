@@ -32,26 +32,18 @@ export default function HomePage() {
   async function loadData() {
     setLoading(true)
     
+    // Carga de marcas
     const { data: brandsData } = await supabase.from('brands').select('*').order('name')
     if (brandsData) setBrands(brandsData)
 
+    // Carga de items con selector flexible (*)
     const { data: itemsData, error } = await supabase
       .from('items')
       .select(`
-        id,
-        condition,
-        rating,
-        price,
-        notes,
-        purchase_year,
-        image_url,
+        *,
         models (
-          name,
-          category,
-          brands (
-            id,
-            name
-          )
+          *,
+          brands (*)
         )
       `)
       .order('created_at', { ascending: false })
@@ -61,12 +53,27 @@ export default function HomePage() {
     } else if (itemsData) {
       const formatted = itemsData.map((item: any) => {
         let imgs: string[] = []
-        if (item.image_url) {
-          // Soporta tanto una URL única como varias separadas por comas o saltos de línea
-          imgs = item.image_url.split(/[\n,]+/).map((u: string) => u.trim()).filter(Boolean)
+        
+        // 1. Array 'images'
+        if (Array.isArray(item.images) && item.images.length > 0) {
+          imgs = item.images.filter(Boolean)
         }
+        
+        // 2. Campo 'image_url' (soporta saltos de línea o comas)
+        if (item.image_url) {
+          const extraImgs = item.image_url
+            .split(/[\n,]+/)
+            .map((u: string) => u.trim())
+            .filter(Boolean)
+          
+          imgs = Array.from(new Set([...imgs, ...extraImgs]))
+        }
+
+        const categoryName = item.models?.category || item.models?.categories?.name || ''
+
         return {
           ...item,
+          categoryName,
           images_list: imgs
         }
       })
@@ -75,7 +82,7 @@ export default function HomePage() {
       const uniqueCategories = Array.from(
         new Set(
           formatted
-            .map((item: any) => item.models?.category?.trim())
+            .map((item: any) => item.categoryName?.trim())
             .filter(Boolean)
         )
       ) as string[]
@@ -92,11 +99,12 @@ export default function HomePage() {
     const modelName = item.models?.name?.toLowerCase() || ''
     const brandName = item.models?.brands?.name?.toLowerCase() || ''
     const itemNotes = item.notes?.toLowerCase() || ''
+    const baseColor = (item.base_color || item.plastic_color || '').toLowerCase()
     const query = searchQuery.toLowerCase()
 
-    const matchesSearch = modelName.includes(query) || brandName.includes(query) || itemNotes.includes(query)
+    const matchesSearch = modelName.includes(query) || brandName.includes(query) || itemNotes.includes(query) || baseColor.includes(query)
     const matchesBrand = selectedBrand ? item.models?.brands?.name === selectedBrand : true
-    const matchesCategory = selectedCategory ? item.models?.category?.trim() === selectedCategory.trim() : true
+    const matchesCategory = selectedCategory ? item.categoryName?.trim() === selectedCategory.trim() : true
 
     return matchesSearch && matchesBrand && matchesCategory
   })
@@ -106,17 +114,20 @@ export default function HomePage() {
     setActiveImageIndex(0)
   }
 
+const handleEditClick = (itemId: string) => {
+    // Redirigimos usando un formato de URL limpio
+    window.location.href = `/admin?edit=${itemId}`
+  }
+
   return (
     <main className="max-w-6xl mx-auto px-6 py-12 min-h-screen relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-zinc-800 pb-6 gap-4">
         <div className="flex items-center gap-4">
-          {/* LOGO: Cambia /logo.png por el nombre de tu archivo en la carpeta public */}
           <img 
             src="/logo.png" 
             alt="Cubes&Stuff" 
             className="h-12 md:h-14 w-auto object-contain"
             onError={(e) => {
-              // Si no encuentra la imagen, muestra texto elegante como alternativa
               e.currentTarget.style.display = 'none'
               const fallback = document.getElementById('title-fallback')
               if (fallback) fallback.style.display = 'block'
@@ -180,7 +191,7 @@ export default function HomePage() {
         <div>
           <input
             type="text"
-            placeholder="Buscar por texto, notas, modelo..."
+            placeholder="Buscar por texto, modelo, color..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-zinc-600 shadow-inner"
@@ -222,6 +233,8 @@ export default function HomePage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {filteredItems.map((item) => {
             const mainImg = item.images_list[0] || null
+            const colorBase = item.base_color || item.plastic_color
+
             return (
               <div 
                 key={item.id} 
@@ -239,9 +252,9 @@ export default function HomePage() {
                     ) : (
                       <span className="text-zinc-700 text-xs font-semibold">Sin imagen</span>
                     )}
-                    {item.models?.category && (
+                    {item.categoryName && (
                       <span className="absolute top-3 right-3 bg-zinc-900/80 backdrop-blur-md text-zinc-200 text-[10px] font-bold px-2.5 py-1 rounded-full border border-zinc-700">
-                        {item.models.category}
+                        {item.categoryName}
                       </span>
                     )}
                   </div>
@@ -260,6 +273,11 @@ export default function HomePage() {
                           {item.condition}
                         </span>
                       )}
+                      {colorBase && (
+                        <span className="bg-zinc-800/80 text-emerald-300 text-[10px] font-semibold px-2 py-0.5 rounded-md border border-emerald-900/40">
+                          🎨 {colorBase}
+                        </span>
+                      )}
                       {item.purchase_year && (
                         <span className="bg-zinc-800/80 text-zinc-300 text-[10px] font-semibold px-2 py-0.5 rounded-md">
                           {item.purchase_year}
@@ -269,10 +287,10 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <div className="px-5 pb-5 pt-0 flex items-center justify-between border-t border-zinc-800/60 mt-auto pt-3">
+                <div className="px-5 pb-5 flex items-center justify-between border-t border-zinc-800/60 mt-auto pt-3">
                   <div className="flex items-center gap-1.5">
                     <span className="text-amber-400 text-xs">★</span>
-                    <span className="text-xs font-bold text-white">{item.rating}/10</span>
+                    <span className="text-xs font-bold text-white">{item.rating || 0}/10</span>
                   </div>
                   {item.price !== null && item.price !== undefined && (
                     <span className="text-xs font-bold text-emerald-400">
@@ -289,26 +307,25 @@ export default function HomePage() {
       {/* MODAL DETALLE / GALERÍA */}
       {activeModalItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl max-w-3xl w-full overflow-hidden shadow-2xl relative flex flex-col max-h-[92vh]">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]">
             
             <button 
               onClick={() => setActiveModalItem(null)}
-              className="absolute top-4 right-4 z-20 bg-zinc-950/80 hover:bg-zinc-800 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border border-zinc-700 transition shadow-lg"
+              className="absolute top-3 right-3 z-20 bg-zinc-950/80 hover:bg-zinc-800 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs border border-zinc-700 transition shadow-lg"
             >
               ✕
             </button>
 
-            {/* ZONA DE FOTOS DESTACADA */}
-            <div className="w-full h-80 sm:h-96 bg-zinc-950 relative flex items-center justify-center overflow-hidden flex-shrink-0 group">
+            {/* ZONA DE FOTOS COMPACTA */}
+            <div className="w-full h-56 sm:h-72 bg-zinc-950 relative flex items-center justify-center overflow-hidden flex-shrink-0 group">
               {activeModalItem.images_list && activeModalItem.images_list.length > 0 ? (
                 <>
                   <img 
                     src={activeModalItem.images_list[activeImageIndex]} 
                     alt={activeModalItem.models?.name} 
-                    className="w-full h-full object-contain transition-all duration-300"
+                    className="w-full h-full object-contain p-2 transition-all duration-300"
                   />
 
-                  {/* Flechas de navegación si hay más de una foto */}
                   {activeModalItem.images_list.length > 1 && (
                     <>
                       <button 
@@ -316,7 +333,7 @@ export default function HomePage() {
                           e.stopPropagation()
                           setActiveImageIndex((prev) => (prev === 0 ? activeModalItem.images_list.length - 1 : prev - 1))
                         }}
-                        className="absolute left-3 bg-zinc-900/80 hover:bg-zinc-800 text-white w-10 h-10 rounded-full flex items-center justify-center border border-zinc-700 transition shadow-lg"
+                        className="absolute left-3 bg-zinc-900/90 hover:bg-zinc-800 text-white w-8 h-8 rounded-full flex items-center justify-center border border-zinc-700 transition shadow-lg text-base font-bold"
                       >
                         ‹
                       </button>
@@ -325,35 +342,35 @@ export default function HomePage() {
                           e.stopPropagation()
                           setActiveImageIndex((prev) => (prev === activeModalItem.images_list.length - 1 ? 0 : prev + 1))
                         }}
-                        className="absolute right-3 bg-zinc-900/80 hover:bg-zinc-800 text-white w-10 h-10 rounded-full flex items-center justify-center border border-zinc-700 transition shadow-lg"
+                        className="absolute right-3 bg-zinc-900/90 hover:bg-zinc-800 text-white w-8 h-8 rounded-full flex items-center justify-center border border-zinc-700 transition shadow-lg text-base font-bold"
                       >
                         ›
                       </button>
-                      <span className="absolute bottom-3 bg-zinc-950/80 text-zinc-300 text-xs font-semibold px-3 py-1 rounded-full border border-zinc-800">
+                      <span className="absolute bottom-2 bg-zinc-950/80 text-zinc-300 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border border-zinc-800">
                         {activeImageIndex + 1} / {activeModalItem.images_list.length}
                       </span>
                     </>
                   )}
                 </>
               ) : (
-                <span className="text-zinc-600 text-sm">Sin imagen disponible</span>
+                <span className="text-zinc-600 text-xs">Sin imagen disponible</span>
               )}
 
-              {activeModalItem.models?.category && (
-                <span className="absolute top-4 left-4 bg-zinc-900/90 text-zinc-200 text-xs font-bold px-3 py-1 rounded-full border border-zinc-700">
-                  {activeModalItem.models.category}
+              {activeModalItem.categoryName && (
+                <span className="absolute top-3 left-3 bg-zinc-900/90 text-zinc-200 text-xs font-bold px-2.5 py-1 rounded-full border border-zinc-700">
+                  {activeModalItem.categoryName}
                 </span>
               )}
             </div>
 
-            {/* MINIATURAS DE NAVEGACIÓN (Si hay varias fotos) */}
+            {/* MINIATURAS DE NAVEGACIÓN */}
             {activeModalItem.images_list && activeModalItem.images_list.length > 1 && (
-              <div className="flex gap-2 p-3 bg-zinc-950 border-b border-zinc-800 overflow-x-auto justify-center">
+              <div className="flex gap-2 p-2 bg-zinc-950 border-b border-zinc-800 overflow-x-auto justify-center">
                 {activeModalItem.images_list.map((imgUrl: string, idx: number) => (
                   <button
                     key={idx}
                     onClick={() => setActiveImageIndex(idx)}
-                    className={`w-14 h-14 rounded-xl overflow-hidden border-2 flex-shrink-0 transition ${activeImageIndex === idx ? 'border-emerald-500 scale-105' : 'border-zinc-800 opacity-60 hover:opacity-100'}`}
+                    className={`w-10 h-10 rounded-lg overflow-hidden border flex-shrink-0 transition ${activeImageIndex === idx ? 'border-emerald-500 scale-105' : 'border-zinc-800 opacity-60 hover:opacity-100'}`}
                   >
                     <img src={imgUrl} alt="Miniatura" className="w-full h-full object-cover" />
                   </button>
@@ -361,66 +378,71 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* CONTENIDO Y DETALLES */}
-            <div className="p-6 sm:p-8 overflow-y-auto space-y-6">
-              <div className="flex justify-between items-start">
+            {/* DETALLES DEL CUBO */}
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
+              <div className="flex justify-between items-start gap-4">
                 <div>
-                  <div className="text-xs text-zinc-400 font-semibold uppercase tracking-wider mb-1">
+                  <div className="text-xs text-zinc-400 font-semibold uppercase tracking-wider mb-0.5">
                     {activeModalItem.models?.brands?.name || 'Marca'}
                   </div>
-                  <h2 className="text-2xl font-extrabold text-white">
+                  <h2 className="text-xl font-extrabold text-white">
                     {activeModalItem.models?.name}
                   </h2>
                 </div>
 
-                {/* BOTÓN EDITAR RÁPIDO SI HAY SESIÓN */}
                 {session && (
-                  <Link
-                    href="/admin"
-                    className="px-4 py-2 bg-emerald-600/20 border border-emerald-500/40 hover:bg-emerald-600 hover:text-white text-emerald-400 text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow"
+                  <button
+                    onClick={() => handleEditClick(activeModalItem.id)}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-md whitespace-nowrap cursor-pointer"
                   >
                     ✏️ Editar cubo
-                  </Link>
+                  </button>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 bg-zinc-950/50 p-3.5 rounded-2xl border border-zinc-800">
                 <div>
                   <span className="text-[10px] text-zinc-500 block uppercase font-bold">Estado</span>
-                  <span className="text-sm font-semibold text-zinc-200">{activeModalItem.condition || 'N/D'}</span>
+                  <span className="text-xs font-semibold text-zinc-200">{activeModalItem.condition || 'N/D'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-zinc-500 block uppercase font-bold">Color Base</span>
+                  <span className="text-xs font-semibold text-emerald-400">
+                    {activeModalItem.base_color || activeModalItem.plastic_color || 'N/D'}
+                  </span>
                 </div>
                 <div>
                   <span className="text-[10px] text-zinc-500 block uppercase font-bold">Valoración</span>
-                  <span className="text-sm font-semibold text-amber-400 flex items-center gap-1">
-                    ★ {activeModalItem.rating}/10
+                  <span className="text-xs font-semibold text-amber-400 flex items-center gap-1">
+                    ★ {activeModalItem.rating || 0}/10
                   </span>
                 </div>
                 <div>
                   <span className="text-[10px] text-zinc-500 block uppercase font-bold">Precio</span>
-                  <span className="text-sm font-semibold text-emerald-400">
-                    {activeModalItem.price !== null ? `${activeModalItem.price} €` : 'N/D'}
+                  <span className="text-xs font-semibold text-emerald-400">
+                    {activeModalItem.price !== null && activeModalItem.price !== undefined ? `${activeModalItem.price} €` : 'N/D'}
                   </span>
                 </div>
                 <div>
                   <span className="text-[10px] text-zinc-500 block uppercase font-bold">Año Compra</span>
-                  <span className="text-sm font-semibold text-zinc-200">{activeModalItem.purchase_year || 'N/D'}</span>
+                  <span className="text-xs font-semibold text-zinc-200">{activeModalItem.purchase_year || 'N/D'}</span>
                 </div>
               </div>
 
               {activeModalItem.notes && (
                 <div>
-                  <h4 className="text-xs text-zinc-400 uppercase font-bold mb-2">Notas Personales</h4>
-                  <p className="text-sm text-zinc-300 bg-zinc-950 p-4 rounded-xl border border-zinc-800 leading-relaxed whitespace-pre-wrap">
+                  <h4 className="text-[10px] text-zinc-400 uppercase font-bold mb-1">Notas Personales</h4>
+                  <p className="text-xs text-zinc-300 bg-zinc-950 p-3 rounded-xl border border-zinc-800 leading-relaxed whitespace-pre-wrap">
                     {activeModalItem.notes}
                   </p>
                 </div>
               )}
             </div>
 
-            <div className="p-4 bg-zinc-950 border-t border-zinc-800 flex justify-end">
+            <div className="p-3 bg-zinc-950 border-t border-zinc-800 flex justify-end">
               <button
                 onClick={() => setActiveModalItem(null)}
-                className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold rounded-xl transition"
+                className="px-5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold rounded-xl transition"
               >
                 Cerrar
               </button>
