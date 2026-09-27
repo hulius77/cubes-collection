@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "deploy",
+      "problemMatcher": [],
+      "label": "🚀 Actualizar en Vercel (Producción)",
+      "detail": "Despliega la versión actual directamente a producción en Vercel",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
